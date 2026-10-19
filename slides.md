@@ -21,30 +21,18 @@ layout: two-cols-header
 layoutClass: gap-x-6
 ---
 
-# A CPE update meant a new OS image and a reboot
+# Alps: 3,880 nodes in multiple clusters, with more than one tenant
 
 ::left::
 
 <div class="flex justify-center">
-<img src="./images/old-stack.png" class="h-95" alt="old software stack">
+<img src="./images/new-model.png" class="h-95" alt="Alps clusters and their tenants">
 </div>
 
 ::right::
 
 <br>
 <br>
-
-Before Alps, CPE was installed in the base image.
-
-A new CPE release (every 6 months) meant:
-1. build a new OS image on a test system
-2. reboot the production system
-3. rebuild every Spack and EasyBuild stack
-4. users rebuild their own software
-
-<br>
-
-Alps: **3,880 nodes** split into tenant clusters
 
 | uarch | nodes | clusters |
 |-------|------:|----------|
@@ -53,20 +41,17 @@ Alps: **3,880 nodes** split into tenant clusters
 | a100  | 144   | Bristen, Balfrin |
 | mi300/mi200 | 152 | Beverin, Besso |
 
-Each tenant has its own users and its own upgrade schedule.
+<br>
+
+Each tenant (HPC, ML/AI, climate, MeteoSwiss) has its own users, its own support team and its own upgrade schedule.
 
 <!--
-A change in any layer of the old stack forced a change in every layer above it.
-On Alps one OS image upgrade schedule cannot serve ML, HPC and MeteoSwiss at the same time.
+One OS image upgrade schedule cannot serve ML, HPC and MeteoSwiss at the same time.
 -->
 
 ---
-layout: two-cols-header
----
 
 # Requirements we set for Alps software
-
-::left::
 
 1. Staff install everything **as a normal user**: no root, no reboot
 2. Many versions of a stack **side by side**
@@ -74,16 +59,6 @@ layout: two-cols-header
 4. **Rollback** means pointing at an older tag
 5. Each tenant **owns** its stacks and its release schedule
 6. The host OS, Slurm and the Slingshot host software (SHS) **do not change**
-
-::right::
-
-<div class="flex justify-center">
-<img src="./images/old-model.png" class="h-36" alt="old support model">
-</div>
-
-<div v-click class="flex justify-center mt-4">
-<img src="./images/new-model.png" class="h-56" alt="new support model">
-</div>
 
 <!--
 Requirement 6 is the key one for this audience: we use the system libfabric, libcxi, xpmem and Slurm from the base image.
@@ -109,15 +84,16 @@ images/<sha256>/
     └── extra/reframe.yaml
 ```
 
-Contents of `store.squashfs`, mounted at `/user-environment`:
+Contents of `store.squashfs`
+<br>mounted at `/user-environment`:
 
 ```
 linux-<target>/             # spack install tree
-env/<view>/                 # spack views + env.json
+env/<view>/                 # spack views
 modules/                    # tcl/lmod modules
 config/                     # upstream config for spack
 repos/spack_repo/{alps,recipe,builtin}
-meta/
+meta/                       # meta data used by uenv
 ```
 
 ::right::
@@ -126,8 +102,6 @@ meta/
 
 The mount point is the install prefix.<br>
 RPATHs are absolute. **Nothing is relocated**.
-
-One file on Lustre, not 10<sup>4</sup>–10<sup>5</sup> inodes. A PyTorch venv in squashfs (22k inodes) starts up to 5× faster.
 
 ```console
 $ uenv start prgenv-gnu --view=default
@@ -163,13 +137,13 @@ layout: section
 
 # Stackinator turns a recipe and a cluster config into a Makefile
 
-```mermaid {scale: 0.55}
+```mermaid {scale: 0.75}
 graph LR
-  R["recipe<br/>config.yaml<br/>compilers.yaml<br/>environments.yaml<br/>modules.yaml<br/>repo/ extra/"] --> SC[stack-config]
-  C["alps-cluster-config/daint<br/>packages.yaml<br/>network.yaml<br/>repos.yaml"] --> SC
-  SC --> B["build dir<br/>Makefile<br/>env/spack.yaml<br/>config/<br/>sandbox"]
-  B --> M["make<br/>(spack in bwrap)"]
-  M --> S[store.squashfs + meta/]
+  R["RECIPE"] --> SC[stack-config]
+  C["CLUSTER-CONFIG"] --> SC
+  SC --> B["build dir:<br/>Makefile<br/>env/spack.yaml<br/>config/"]
+  B --> M["make<br/>(spack in bwrap sandbox)"]
+  M --> S[store.squashfs]
 ```
 
 ```bash
@@ -181,8 +155,6 @@ env --ignore-environment PATH=/usr/bin:/bin:`pwd -P`/spack/bin HOME=$HOME make s
 - `stack-config` clones Spack and the package repos at the commits set in the recipe
 - One Spack environment, one concretization, one `spack install`
 - The build runs on a compute node of the target cluster, as the CI user
-
-<p class="text-sm opacity-70">This talk shows Stackinator v7 (main). Most deployed recipes use the v2 format, built with the v6 release.</p>
 
 <!--
 The recipe says what software. The cluster config says what the system provides.
@@ -393,57 +365,6 @@ SOURCE_DATE_EPOCH := 315576060   # DOS epoch, for wheels
 <!--
 No root and no fakeroot at any point in the build.
 The host / is visible, so system externals (libcxi in /usr, slurm) are used as on the real system.
--->
-
----
-
-# Make targets, from Spack install to squashfs
-
-<div class="grid grid-cols-2 gap-6">
-<div>
-
-| target | action |
-|---|---|
-| `spack-setup` | `spack bootstrap now` |
-| `mirror-setup` | trust buildcache keys |
-| `env/spack.lock` | `spack concretize --force` |
-| `install` | `spack install --jobs $(NJOBS)` |
-| `cache-push` | `spack buildcache create` |
-| `compiler-config.yaml` | built compilers → externals |
-| `views` | `activate.sh` → `env.json` per view |
-| `generate-config` | `config/{upstreams,packages,repos}.yaml` |
-| `modules-done` | `spack module tcl refresh` |
-| `env-meta` | `meta/env.json` |
-| `post-install` | recipe hook in the sandbox |
-| `store.squashfs` | `mksquashfs` |
-
-</div>
-<div>
-
-```make
-store.squashfs: env-meta post-install cache-push
-  $(SANDBOX) find $(STORE)/repos -type d \
-      -name __pycache__ -exec rm -r {} +
-  $(SANDBOX) chmod -R a+rX $(STORE)
-  $(SANDBOX) env -u SOURCE_DATE_EPOCH $(MKSQUASHFS) \
-      $(STORE) $@ \
-      -force-uid nobody -force-gid nobody \
-      -all-time $$(date +%s) \
-      -no-recovery -noappend -Xcompression-level 3
-```
-
-<p class="text-sm opacity-70">abridged: <code>$(MKSQUASHFS)</code> is the mksquashfs that Spack built in the same environment</p>
-
-
-- Compilers are spec groups in the same environment, with `needs: [gcc]`
-- `cache-push` pushes every package to a Spack build cache, so a rebuild reuses binaries
-- `config/` and `repos/` ship in the image: users run `spack` with the uenv as an **upstream**, and get the same `cray-mpich` package definition
-
-</div>
-</div>
-
-<!--
-The image contains the package.py files that installed it. A user build on top of a uenv uses the same cray-mpich definition and the same installed prefix.
 -->
 
 ---
@@ -802,25 +723,6 @@ Values can refer to other variables with `${@VAR@}`.
 
 ::right::
 
-glibc removes `LD_LIBRARY_PATH`, `LD_PRELOAD` and the other `unsecvars.h` variables from the environment of a setuid process (`AT_SECURE`).
-
-The CLI saves a copy under a prefix:
-```cpp
-if (unsecure_envvars__.contains(e.first)) {
-    secure_vars.push_back(
-        {secure_prefix.value() + e.first, e.second});
-}
-```
-
-The helper restores them after dropping root:
-```cpp
-for (auto& [name, v] : calling_env.variables()) {
-    if (name.starts_with("SQFSMNT_FWD_")) {
-        runtime_env.set(name.substr(12), v);
-    }
-}
-```
-
 - No `getenv`: a snapshot of `envp` is patched and passed to `execvpe`. Works for any shell.
 - uenv v1 printed `export` lines for the shell to `eval`. We removed that.
 
@@ -1056,26 +958,15 @@ See demo.md for the full script and what to point out.
 
 ---
 
-# Summary
-
-- A uenv is a squashfs image built by Spack at its final path, and mounted read-only in a private mount namespace
-- The build runs as a normal user in a bwrap sandbox, on the target cluster, from a recipe in git
-- HPE binaries are installed by Spack packages that download a repackaged tarball, set RPATHs and add missing `DT_NEEDED` entries
-- The runtime is a small, tested C++ code base: an unprivileged CLI, a setuid helper that only mounts, and a SPANK plugin
-
-<br>
+# Links
 
 | | |
 |---|---|
-| uenv | github.com/eth-cscs/uenv |
-| stackinator | github.com/eth-cscs/stackinator |
-| cluster config | github.com/eth-cscs/alps-cluster-config |
-| recipes | github.com/eth-cscs/alps-uenv |
-| docs | docs.cscs.ch |
-
-<br>
-
-## Questions
+| uenv | [github.com/eth-cscs/uenv](https://github.com/eth-cscs/uenv) |
+| stackinator | [github.com/eth-cscs/stackinator](https://github.com/eth-cscs/stackinator) |
+| cluster config | [github.com/eth-cscs/alps-cluster-config](https://github.com/eth-cscs/alps-cluster-config) |
+| recipes | [github.com/eth-cscs/alps-uenv](https://github.com/eth-cscs/alps-uenv) |
+| docs | [docs.cscs.ch](https://docs.cscs.ch) |
 
 ---
 layout: section
@@ -1122,20 +1013,3 @@ OpenMPI and libfabric are built from source against the system libcxi and xpmem.
 
 `prgenv-gnu-openmpi/26.3` pins `libfabric@2.3` because of open-mpi/ompi#13582 and ofiwg/libfabric#11900, #12036.
 
----
-
-# Backup: label resolution
-
-Grammar: `[ns::]name[/version][:tag][@system|*][%uarch]`
-
-- `@` and `%` may come in either order. `:` followed by a path is a mount point.
-- A 16-hex-digit or 64-hex-digit name is also matched against the `id` and `sha256` columns
-- Resolution fails if the matching records have different sha256
-- Default system: `CLUSTER_NAME` → `/etc/uenv/config.toml` → `~/.config/uenv/config.toml` → `--system`
-- Inputs are lexed and parsed, not matched with regex: `src/util/lex.cpp`, `src/uenv/parse.cpp`
-
-```console
-$ uenv run prgenv-gnu/26.3:v1@daint%gh200:/user-environment -- cmd
-$ uenv run b81fd6ba25e88782 -- cmd
-$ uenv run ./store.squashfs:/user-environment -- cmd
-```
