@@ -1,0 +1,60 @@
+/* deck-wide sizing: these slides carry dense technical content */
+:root {
+  --slidev-code-font-size: 0.7rem;
+  --slidev-code-line-height: 1.3;
+}
+
+.slidev-layout {
+  font-size: 0.92rem;
+}
+
+.slidev-layout.default h1,
+.slidev-layout.two-cols-header h1,
+.slidev-layout.center h1 {
+  font-size: 1.7rem;
+  line-height: 2.1rem;
+  margin-bottom: 0.7rem;
+}
+
+.slidev-layout h3 {
+  font-size: 1.05rem;
+  margin-bottom: 0.3rem;
+}
+
+.slidev-layout p {
+  margin-top: 0.45rem;
+  margin-bottom: 0.45rem;
+  line-height: 1.4;
+}
+
+.slidev-layout li {
+  line-height: 1.5em;
+}
+
+.slidev-layout pre,
+.slidev-layout .slidev-code-wrapper {
+  margin-top: 0.3rem;
+  margin-bottom: 0.3rem;
+}
+
+.slidev-layout table {
+  font-size: 0.78rem;
+}
+
+.slidev-layout th,
+.slidev-layout td {
+  padding-top: 0.2rem;
+  padding-bottom: 0.2rem;
+}
+
+/* slidev's two-cols-header splits the height 50/50 between header and columns */
+.slidev-layout.two-cols-header {
+  grid-template-rows: auto 1fr auto !important;
+  align-items: start;
+}
+
+/* inline code inside tables: keep rows compact */
+.slidev-layout td code {
+  font-size: 0.72rem;
+  padding: 0.05rem 0.25rem;
+}

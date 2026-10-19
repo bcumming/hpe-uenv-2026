@@ -1,0 +1,9 @@
+node_modules
+.DS_Store
+dist
+.pnpm-store
+*.local
+.vite-inspect
+.remote-assets
+.ropeproject
+components.d.ts
